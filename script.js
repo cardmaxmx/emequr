@@ -1,19 +1,94 @@
-const CONTACT = {
-  firstName: 'Carlos Enrique',
-  lastName: 'de la Garza Silva',
-  fullName: 'Carlos Enrique de la Garza Silva',
-  title: 'Representante de Ventas',
-  company: 'Grupo EMEQUR',
-  phoneDisplay: '44 4256 2833',
-  phoneE164: '+524442562833',
-  email: 'ventas2@emequr.com.mx',
-  website: 'https://emequr.com',
-  branch: 'Suc. Alpes',
-  addressLine: 'Cordillera de los Alpes 990, Col. Villas del Pedregal',
-  cityRegion: 'San Luis Potosí, SLP',
-  postalCode: '78218',
-  country: 'MX'
-};
+function digitsOnly(value) {
+  return String(value || '').replace(/\D+/g, '');
+}
+
+function normalizePhoneToE164(phoneDisplay, countryCallingCode = '52') {
+  const digits = digitsOnly(phoneDisplay);
+  if (!digits) return '';
+  if (digits.startsWith(countryCallingCode) && digits.length > 10) return `+${digits}`;
+  if (digits.length === 10) return `+${countryCallingCode}${digits}`;
+  if (digits.length === 12 && digits.startsWith(countryCallingCode)) return `+${digits}`;
+  return `+${countryCallingCode}${digits}`;
+}
+
+function slugifyFilename(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .replace(/-+/g, '-')
+    .toLowerCase();
+}
+
+function hydrateContact(raw) {
+  const base = raw && typeof raw === 'object' ? raw : {};
+  const website = base.website
+    ? String(base.website).startsWith('http')
+      ? base.website
+      : `https://${base.website}`
+    : 'https://emequr.com';
+
+  const phones = Array.isArray(base.phones)
+    ? base.phones
+    : [
+        {
+          display: base.phoneDisplay,
+          e164: base.phoneE164,
+          type: 'CELL'
+        }
+      ].filter((p) => p.display || p.e164);
+
+  const normalizedPhones = phones
+    .map((p) => {
+      const display = p.display || '';
+      const e164 = p.e164 || normalizePhoneToE164(display);
+      return { ...p, display, e164 };
+    })
+    .filter((p) => p.display || p.e164);
+
+  const phoneDisplay =
+    base.phoneDisplay ||
+    normalizedPhones
+      .map((p) => p.display)
+      .filter(Boolean)
+      .join(' / ');
+
+  const primaryPhoneE164 = normalizedPhones[0]?.e164 || base.phoneE164 || '';
+
+  return {
+    company: 'Grupo EMEQUR',
+    country: 'MX',
+    ...base,
+    website,
+    phones: normalizedPhones,
+    phoneDisplay,
+    phoneE164: primaryPhoneE164
+  };
+}
+
+function getContact() {
+  // Each employee HTML sets window.CONTACT = {...}
+  // Fallback keeps the page functional if CONTACT isn't present.
+  return hydrateContact(
+    window.CONTACT || {
+      firstName: 'Grupo',
+      lastName: 'EMEQUR',
+      fullName: 'Grupo EMEQUR',
+      title: 'Tarjeta digital',
+      phones: [],
+      email: '',
+      website: 'https://emequr.com',
+      branch: '',
+      addressLine: '',
+      cityRegion: '',
+      postalCode: '',
+      country: 'MX'
+    }
+  );
+}
+
+const CONTACT = getContact();
 
 function el(id) {
   return document.getElementById(id);
@@ -29,6 +104,8 @@ function showToast(message) {
 }
 
 function buildVCard() {
+  const phones = Array.isArray(CONTACT.phones) ? CONTACT.phones : [];
+  const hasAddress = Boolean(CONTACT.addressLine || CONTACT.cityRegion || CONTACT.postalCode);
   const lines = [
     'BEGIN:VCARD',
     'VERSION:3.0',
@@ -36,12 +113,26 @@ function buildVCard() {
     `FN:${CONTACT.fullName}`,
     `ORG:${CONTACT.company}`,
     `TITLE:${CONTACT.title}`,
-    `TEL;TYPE=CELL,VOICE:${CONTACT.phoneE164}`,
-    `EMAIL;TYPE=INTERNET:${CONTACT.email}`,
-    `URL:${CONTACT.website}`,
-    `ADR;TYPE=WORK:;;${CONTACT.addressLine};${CONTACT.cityRegion};;${CONTACT.postalCode};${CONTACT.country}`,
+    ...phones
+      .map((p) => {
+        const type = p.type || 'CELL';
+        const e164 = p.e164 || '';
+        if (!e164) return null;
+        return `TEL;TYPE=${type},VOICE:${e164}`;
+      })
+      .filter(Boolean),
+    ...(CONTACT.email ? [`EMAIL;TYPE=INTERNET:${CONTACT.email}`] : []),
+    ...(CONTACT.website ? [`URL:${CONTACT.website}`] : []),
     'END:VCARD'
   ];
+
+  if (hasAddress) {
+    const addressLine = CONTACT.addressLine || '';
+    const cityRegion = CONTACT.cityRegion || '';
+    const postalCode = CONTACT.postalCode || '';
+    const country = CONTACT.country || 'MX';
+    lines.splice(lines.length - 1, 0, `ADR;TYPE=WORK:;;${addressLine};${cityRegion};;${postalCode};${country}`);
+  }
 
   return lines.join('\n');
 }
@@ -52,7 +143,7 @@ function downloadVCard() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'Carlos-Enrique-de-la-Garza-Silva-Grupo-EMEQUR.vcf';
+  a.download = `${slugifyFilename(CONTACT.fullName)}-grupo-emequr.vcf`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -60,9 +151,10 @@ function downloadVCard() {
 }
 
 async function shareCard() {
+  const parts = [CONTACT.title, CONTACT.phoneDisplay, CONTACT.email].filter(Boolean);
   const shareData = {
     title: `${CONTACT.fullName} | ${CONTACT.company}`,
-    text: `${CONTACT.title} • ${CONTACT.phoneDisplay} • ${CONTACT.email}`,
+    text: parts.join(' • '),
     url: window.location.href
   };
 
@@ -85,11 +177,17 @@ async function shareCard() {
 
 function wireLinks() {
   const telHref = `tel:${CONTACT.phoneE164}`;
-  const mailHref = `mailto:${CONTACT.email}`;
-  const mapsQuery = encodeURIComponent(
-    `${CONTACT.branch}, ${CONTACT.addressLine}, CP ${CONTACT.postalCode}, ${CONTACT.cityRegion}`
-  );
-  const mapsHref = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
+  const mailHref = CONTACT.email ? `mailto:${CONTACT.email}` : '';
+
+  const mapNode = el('mapLink');
+  let mapsHref = '';
+  if (mapNode) {
+    const parts = [CONTACT.branch, CONTACT.addressLine, CONTACT.postalCode && `CP ${CONTACT.postalCode}`, CONTACT.cityRegion]
+      .filter(Boolean)
+      .join(', ');
+    const query = parts || CONTACT.company || 'Grupo EMEQUR';
+    mapsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  }
 
   const links = {
     callLink: telHref,
@@ -104,6 +202,13 @@ function wireLinks() {
   for (const [id, href] of Object.entries(links)) {
     const node = el(id);
     if (!node) continue;
+
+    if (!href) {
+      node.hidden = true;
+      continue;
+    }
+
+    node.hidden = false;
     node.setAttribute('href', href);
   }
 }
