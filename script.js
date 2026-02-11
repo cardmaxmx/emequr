@@ -213,6 +213,49 @@ function wireLinks() {
   }
 }
 
+function websiteLabel(value) {
+  return String(value || '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '');
+}
+
+function setLinkText(id, text) {
+  const node = el(id);
+  if (!node || !text) return;
+  const icon = node.querySelector('svg');
+  if (!icon) return;
+  const iconClone = icon.cloneNode(true);
+  node.textContent = '';
+  node.appendChild(iconClone);
+  node.appendChild(document.createTextNode(` ${text}`));
+}
+
+function hydrateVisibleContactData() {
+  const phoneText = CONTACT.phoneDisplay || 'Teléfono';
+  const emailText = CONTACT.email || 'Correo';
+  const webText = websiteLabel(CONTACT.website) || 'emequr.com';
+  const addressText =
+    [CONTACT.branch, CONTACT.addressLine, CONTACT.postalCode ? `CP ${CONTACT.postalCode}` : '', CONTACT.cityRegion]
+      .filter(Boolean)
+      .join(' · ') || 'Buscar sucursal EMEQUR';
+
+  setLinkText('pillPhone', phoneText);
+  setLinkText('pillEmail', emailText);
+  setLinkText('pillWeb', webText);
+
+  const callSub = el('callLink')?.querySelector('.sub');
+  if (callSub) callSub.textContent = phoneText;
+
+  const emailSub = el('emailLink')?.querySelector('.sub');
+  if (emailSub) emailSub.textContent = emailText;
+
+  const webSub = el('webLink')?.querySelector('.sub');
+  if (webSub) webSub.textContent = webText;
+
+  const mapSub = el('mapLink')?.querySelector('.sub');
+  if (mapSub) mapSub.textContent = addressText;
+}
+
 function main() {
   const saveBtn = el('saveBtn');
   if (saveBtn) {
@@ -231,6 +274,7 @@ function main() {
     });
   }
 
+  hydrateVisibleContactData();
   wireLinks();
 }
 
